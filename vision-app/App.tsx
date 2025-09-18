@@ -12,16 +12,35 @@ export default function App() {
   const [permission, requestPermission] = useCameraPermissions();
   const [isCapturing, setIsCapturing] = useState(false);
   const [lastDescription, setLastDescription] = useState<string | null>(null);
+  const [voiceId, setVoiceId] = useState<string | undefined>(undefined);
 
-  // Fala utilitária
+  // Carregar voz mais natural em pt-BR (prioriza qualidade melhor quando disponível)
+  useEffect(() => {
+    (async () => {
+      try {
+        const voices = await Speech.getAvailableVoicesAsync();
+        // Filtra vozes pt-BR
+        const ptBR = (voices || []).filter(v => (v as any).language?.toLowerCase?.().startsWith('pt-br')) as any[];
+        // Tenta Enhanced/Premium primeiro
+        const enhanced = ptBR.find(v => String((v as any).quality || '').toLowerCase().includes('enhanced') || String((v as any).name || '').toLowerCase().includes('premium'));
+        const chosen = enhanced || ptBR[0];
+        if (chosen?.identifier) setVoiceId(chosen.identifier);
+      } catch {
+        // Ignora, usará padrão
+      }
+    })();
+  }, []);
+
+  // Fala utilitária (voz mais natural se disponível)
   const speak = useCallback((text: string) => {
     Speech.stop();
     Speech.speak(text, {
       language: 'pt-BR',
+      voice: voiceId, // usa voz preferida se disponível
       pitch: 1.0,
-      rate: Platform.select({ ios: 0.5, android: 1.0, default: 1.0 }),
+      rate: Platform.select({ ios: 0.46, android: 1.0, default: 1.0 }),
     });
-  }, []);
+  }, [voiceId]);
 
   // Obter chave da OpenAI da configuração (app.config.ts -> extra.OPENAI_API_KEY)
   const getApiKey = useCallback(() => {
@@ -72,7 +91,7 @@ export default function App() {
       if (!key) {
         speak('Configuração da chave da OpenAI ausente. Por favor, configure a chave no app.');
       } else {
-        speak('Aplicativo pronto. Toque em qualquer lugar para descrever a roupa. Toque e segure para repetir a última descrição.');
+        speak('Aplicativo pronto. Toque para descrever a roupa e ouvir dicas. Toque e segure para repetir a última resposta.');
       }
     })();
   }, [getApiKey, speak]);
@@ -97,7 +116,7 @@ export default function App() {
     const apiKey = getApiKey();
     if (!apiKey) throw new Error('Chave de API não configurada.');
 
-    const prompt = 'Você é um assistente para pessoas com deficiência visual. Descreva a roupa de forma objetiva em 1 a 2 frases, em português do Brasil. Inclua: tipo da peça, cor principal, padrões (listras, xadrez, estampas) e detalhes visuais relevantes (botões, bolsos, gola). Evite suposições e não mencione a presença de pessoas.';
+    const prompt = 'Você é um assistente de moda para pessoas com deficiência visual.\n\n1) Descrição: descreva a peça em 1 a 2 frases, em português do Brasil, incluindo tipo (camisa, calça, vestido, etc.), cor principal, padrões (listras, xadrez, estampas) e detalhes visuais relevantes (botões, bolsos, gola). Evite suposições e não mencione pessoas.\n\n2) Dicas: forneça 2 a 3 itens curtos e práticos, priorizando nesta ordem:\n   - Ocasiões recomendadas de uso (informal, trabalho, noite, clima, eventos).\n   - Combinações de cores e tendências atuais (neutros, contraste, monocromático, texturas).\n   - Instruções de cuidado rápidas (lavagem, secagem, passar, armazenamento) apenas se relevante.\n\nTom: amigável, direto e confiante; evite jargões e redundâncias.\n\nFormate exatamente assim:\nDescrição: <texto curto>\nDicas:\n- <dica 1>\n- <dica 2>\n- <dica 3 (opcional)>';
 
     const clean = normalizeBase64(base64);
     const dataUrl = `data:image/jpeg;base64,${clean}`;
@@ -114,7 +133,7 @@ export default function App() {
         },
       ],
       temperature: 0.2,
-      max_tokens: 150,
+      max_tokens: 220,
     } as const;
 
     const res = await fetch('https://api.openai.com/v1/chat/completions', {
@@ -207,7 +226,7 @@ export default function App() {
     if (lastDescription) {
       speak(lastDescription);
     } else {
-      speak('Nenhuma descrição disponível ainda. Toque para descrever.');
+      speak('Nenhuma resposta disponível ainda. Toque para descrever e ouvir dicas.');
     }
   }, [lastDescription, speak]);
 
